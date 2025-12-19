@@ -4,4 +4,3 @@ import matplotlib.pyplot as plt
 import scipy as sc
 import qmcpy
 
-print("HelloWorld")
