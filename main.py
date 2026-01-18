@@ -7,6 +7,7 @@ import qmcpy
 import normflows as nf
 import torch
 from tqdm import tqdm
+import customdistributions as cd
 
 def t_student_pdf(x, nu_IS, sigma_IS):
   """computes the pdf of the univariate t-student distribution
@@ -86,13 +87,11 @@ def fourier_payoff_basket_put(u):
   return (numerator/denominator)
 
 pdf = t_student_pdf(np.linspace(-10,10,100),1,1)
-plt.plot(np.linspace(-10,10,100),pdf)
-plt.show()
-plt.close()
 
-base = nf.distributions.base.Uniform(2,low=-1.0,high=1.0)
+#base = nf.distributions.base.Uniform(2,low=-0.0,high=1.0)
 #base = nf.distributions.base.UniformGaussian(2,1)
-#base = nf.distributions.base.DiagGaussian(2)
+base = nf.distributions.base.DiagGaussian(2)
+#base = cd.Multivariate_Diag_t((0,0),torch.tensor([1,2]),10)
 # Define list of flows
 num_layers = 32
 flows = []
@@ -107,6 +106,7 @@ for i in range(num_layers):
 
 # If the target density is given
 target = nf.distributions.target.TwoMoons()
+target = cd.Multivariate_t((0,0),torch.tensor([[1,1],[1,2]]),10)
 model = nf.NormalizingFlow(base, flows, target)
 
 # Move model on GPU if available
@@ -149,7 +149,7 @@ show_iter = 500
 
 loss_hist = np.array([])
 
-optimizer = torch.optim.Adam(model.parameters(), lr=5e-5, weight_decay=1e-6)
+optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-5)
 
 for it in tqdm(range(max_iter)):
     optimizer.zero_grad()
