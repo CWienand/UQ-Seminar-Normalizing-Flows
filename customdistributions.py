@@ -36,17 +36,23 @@ class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
         self.df = df
         self.distribution = stats.multivariate_t(loc, torch.diag(diag),df)
         self.rng = np.random.default_rng()
-        self.sampler = sampling.NumericalInverseHermite(self.distribution,u_resolution = sampler_resolution)
+        #self.sampler = sampling.NumericalInverseHermite(self.distribution,u_resolution = sampler_resolution)
+        self.n_dims = len(diag)
+        self.max_log_prob = 0.0
 
     def log_prob(self, z):
-        return self.distribution.logpdf(z)
+        return torch.tensor(self.distribution.logpdf(z.detach().numpy()))       #Works but should have issues in scaling!
     
     def sample(self, num_samples = 1):
-        return self.sampler.rvs(size = num_samples)     #Scipy also allows qrvc for qmc sampling, maybe intersting for performance?
+        #X = /mu + /sigma /dot X_0
+        print("sampled!")
+        return self.rng.standard_t(self.df,size=(self.n_dims,num_samples))[:,...] \
+                 * np.array(num_samples*[np.array(self.diag)]).T+np.array(num_samples*[np.array(self.loc)]).T   #Inefficient!
+        return self.sampler.rvs(size = num_samples)     #Scipy also allows qrvc for qmc sampling, maybe intersting for performance as it doesnt converge right now?
     
     def forward(self, num_samples = 1, context = None):
         z = self.sample(num_samples)
-        return z, self.log_prob(z)
+        return torch.tensor(z), self.log_prob(z)
 
 
 class Multivariate_t(nf.distributions.target.Target):

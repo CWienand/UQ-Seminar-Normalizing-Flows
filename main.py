@@ -91,7 +91,9 @@ pdf = t_student_pdf(np.linspace(-10,10,100),1,1)
 #base = nf.distributions.base.Uniform(2,low=-0.0,high=1.0)
 #base = nf.distributions.base.UniformGaussian(2,1)
 base = nf.distributions.base.DiagGaussian(2)
-#base = cd.Multivariate_Diag_t((0,0),torch.tensor([1,2]),10)
+base = cd.Multivariate_Diag_t(np.array([0,0]),torch.tensor([1,2]),10)
+s = base.sample(num_samples=10000)
+print(s.mean())
 # Define list of flows
 num_layers = 32
 flows = []
