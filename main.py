@@ -89,9 +89,8 @@ def fourier_payoff_basket_put(u):
 pdf = t_student_pdf(np.linspace(-10,10,100),1,1)
 
 #base = nf.distributions.base.Uniform(2,low=-0.0,high=1.0)
-#base = nf.distributions.base.UniformGaussian(2,1)
-base = nf.distributions.base.DiagGaussian(2)
-base = cd.Multivariate_Diag_t(np.array([0,0]),torch.tensor([1,2]),10)
+base = nf.distributions.base.DiagGaussian((2))
+#base = cd.Multivariate_Diag_t([0,0],[1,1],[10,10])
 s = base.sample(num_samples=10000)
 print(s.mean())
 # Define list of flows
@@ -100,7 +99,7 @@ flows = []
 for i in range(num_layers):
     # Neural network with two hidden layers having 64 units each
     # Last layer is initialized by zeros making training more stable
-    param_map = nf.nets.MLP([1, 64, 64, 2], init_zeros=True)
+    param_map = nf.nets.MLP([1, 128, 64, 2], init_zeros=True)
     # Add flow layer
     flows.append(nf.flows.AffineCouplingBlock(param_map))
     # Swap dimensions
@@ -108,6 +107,7 @@ for i in range(num_layers):
 
 # If the target density is given
 target = nf.distributions.target.TwoMoons()
+#target =  nf.distributions.base.Uniform(2,low=-1.0,high=1.0)
 target = cd.Multivariate_t((0,0),torch.tensor([[1,1],[1,2]]),10)
 model = nf.NormalizingFlow(base, flows, target)
 
@@ -144,23 +144,23 @@ plt.gca().set_aspect('equal', 'box')
 plt.show()
 
 # Train model
-max_iter = 1000
-num_samples = 2 ** 9
+max_iter = 10000
+num_samples = 2 ** 12
 show_iter = 500
 
 
 loss_hist = np.array([])
 
-optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-5)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-6)
 
 for it in tqdm(range(max_iter)):
     optimizer.zero_grad()
     
     # Get training samples
-    x = target.sample(num_samples).to(device)
-    
+    #x = target.sample(num_samples).to(device)    
     # Compute loss
-    loss = model.forward_kld(x)
+
+    loss = model.reverse_kld(num_samples)
     
     # Do backprop and optimizer step
     if ~(torch.isnan(loss) | torch.isinf(loss)):
@@ -172,6 +172,7 @@ for it in tqdm(range(max_iter)):
     
     # Plot learned distribution
     if (it + 1) % show_iter == 0:
+        print(loss)
         model.eval()
         log_prob = model.log_prob(zz)
         model.train()

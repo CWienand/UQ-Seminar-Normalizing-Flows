@@ -7,6 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import torch
 from collections import abc
+import math
 
 
 class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
@@ -28,27 +29,25 @@ class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
         returns Sequence of distribution samples and the log_prob of the sampled points
     """
 
-    def __init__(self, loc, diag, df, sampler_resolution = 1e-10):  
+    def __init__(self, loc, diag, dfs, sampler_resolution = 1e-10):  
        
         super().__init__()
         self.loc = loc
         self.diag = diag
-        self.df = df
-        self.distribution = stats.multivariate_t(loc, torch.diag(diag),df)
-        self.rng = np.random.default_rng()
-        #self.sampler = sampling.NumericalInverseHermite(self.distribution,u_resolution = sampler_resolution)
+        self.df = dfs
+        print([(lo, dia,df)for lo, dia, df in zip(loc,diag,dfs)])
+        self.distributions = [torch.distributions.studentT.StudentT(df,lo, dia)for lo, dia,df in zip(loc,diag,dfs)]
         self.n_dims = len(diag)
         self.max_log_prob = 0.0
 
     def log_prob(self, z):
-        return torch.tensor(self.distribution.logpdf(z.detach().numpy()))       #Works but should have issues in scaling!
+        return sum([distribution.log_prob(z[:,i]) for i,distribution in enumerate(self.distributions)])       #Works but should have issues in scaling!
     
     def sample(self, num_samples = 1):
-        #X = /mu + /sigma /dot X_0
-        print("sampled!")
-        return self.rng.standard_t(self.df,size=(self.n_dims,num_samples))[:,...] \
-                 * np.array(num_samples*[np.array(self.diag)]).T+np.array(num_samples*[np.array(self.loc)]).T   #Inefficient!
-        return self.sampler.rvs(size = num_samples)     #Scipy also allows qrvc for qmc sampling, maybe intersting for performance as it doesnt converge right now?
+        if type(num_samples) is torch.Size:
+            return torch.stack([distribution.sample(num_samples) for distribution in self.distributions],axis = 1)
+        else:
+            return torch.stack([distribution.sample(torch.Size([num_samples])) for distribution in self.distributions],axis = 1)
     
     def forward(self, num_samples = 1, context = None):
         z = self.sample(num_samples)
@@ -80,4 +79,4 @@ class Multivariate_t(nf.distributions.target.Target):
         self.max_log_prob = 0.0
 
     def log_prob(self, z):
-        return torch.tensor(self.distribution.logpdf(z))
+        return torch.tensor(self.distribution.logpdf(z.detach().numpy()))   #Inefficient but should work?
