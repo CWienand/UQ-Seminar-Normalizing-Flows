@@ -12,16 +12,13 @@ import math
 
 class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
     """
-    Multivariate student t distribution wrapper from scipy.stats to normflows base distributions class.
-    Instantiates scipy.stats.multivariate_t_frozen istribution of the given parameters and makes the 
-    scipy distribution calls accessible for normflows (torch) ML functionalities.
-    Only allows Diagonal matrix entries!
+    Diagonal Multivariate t-student implementation as normflows base. Underlying distributions
+    are torch.student_t distributions. log_prob and sample wrap the relevant function calls and stack/sum the results to convert
+    to multidimensional case.
     Parameters:
     loc [torch.tensor([torch.float64])]: location of distribution center
     diag [torch.tensor([torch.float64]))]: diagonal entries of the distribution matrix
     df [torch.float64]: number of degrees of freedom of the student t distribution
-    Optional Parameters:
-    sampler_reolution [float], default 1e-10: resolution of the sampler. 1e-10 is the resolution limit for numpy random state
     Methods:
     log_prob(z: torch.tensor([torch.float64])) -> torch.float64: returns log probability of sample point z
     sample(num_samples: int) -> torch.tensor([torch.float64]): returns num_samples samples from the underlying distribution
@@ -29,7 +26,7 @@ class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
         returns Sequence of distribution samples and the log_prob of the sampled points
     """
 
-    def __init__(self, loc, diag, dfs, sampler_resolution = 1e-10):  
+    def __init__(self, loc, diag, dfs):  
        
         super().__init__()
         self.loc = loc
@@ -41,7 +38,7 @@ class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
         self.max_log_prob = 0.0
 
     def log_prob(self, z):
-        return sum([distribution.log_prob(z[:,i]) for i,distribution in enumerate(self.distributions)])       #Works but should have issues in scaling!
+        return sum([distribution.log_prob(z[:,i]) for i,distribution in enumerate(self.distributions)])
     
     def sample(self, num_samples = 1):
         if type(num_samples) is torch.Size:
@@ -59,7 +56,6 @@ class Multivariate_t(nf.distributions.target.Target):
     Multivariate student t distribution wrapper from scipy.stats to normflows base distributions class.
     Instantiates scipy.stats.multivariate_t_frozen istribution of the given parameters and makes the 
     scipy distribution calls accessible for normflows (torch) ML functionalities.
-    Only allows Diagonal matrix entries!
     Parameters:
     loc [torch.tensor([torch.float64])]: location of distribution center
     matrix [torch.tensor([torch.float64],[torch.float64]))]: distribution matrix
@@ -79,4 +75,5 @@ class Multivariate_t(nf.distributions.target.Target):
         self.max_log_prob = 0.0
 
     def log_prob(self, z):
-        return torch.tensor(self.distribution.logpdf(z.detach().numpy()))   #Inefficient but should work?
+        res = torch.tensor(self.distribution.logpdf(z.detach().numpy()))
+        return res   #Inefficient but should work?
