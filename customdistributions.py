@@ -76,4 +76,4 @@ class Multivariate_t(nf.distributions.target.Target):
 
     def log_prob(self, z):
         res = torch.tensor(self.distribution.logpdf(z.detach().numpy()))
-        return res   #Inefficient but should work?
+        return res

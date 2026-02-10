@@ -9,15 +9,15 @@ import torch
 from tqdm import tqdm
 import customdistributions as cd
 
-K = 16
-torch.manual_seed(42)
+K = 64
+torch.manual_seed(2026)
 
 latent_size = 2
 b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(latent_size)])
 flows = []
 for i in range(K):
-    s = nf.nets.MLP([latent_size, 2 * latent_size, latent_size], init_zeros=True)
-    t = nf.nets.MLP([latent_size, 2 * latent_size, latent_size], init_zeros=True)
+    s = nf.nets.MLP([latent_size, 20 * latent_size, latent_size], init_zeros=True)
+    t = nf.nets.MLP([latent_size, 20 * latent_size, latent_size], init_zeros=True)
     if i % 2 == 0:
         flows += [nf.flows.MaskedAffineFlow(b, t, s)]
     else:
@@ -25,9 +25,9 @@ for i in range(K):
     flows += [nf.flows.ActNorm(latent_size)]
 
 # Set target and q0
-target = cd.Multivariate_t([0,0],[[10,20],[10,20]],20)
-#q0 = cd.Multivariate_Diag_t([0,0],[1,1],[1,1])
-q0 = nf.distributions.DiagGaussian(2)
+target = cd.Multivariate_t([0,0],[[1,2],[1,2]],20)
+q0 = cd.Multivariate_Diag_t([0,0],[1,1],[10,10])
+#q0 = nf.distributions.DiagGaussian(2)
 
 # Construct flow model
 nfm = nf.NormalizingFlow(q0=q0, flows=flows, p=target)
@@ -37,18 +37,20 @@ enable_cuda = True
 device = torch.device('cuda' if torch.cuda.is_available() and enable_cuda else 'cpu')
 nfm = nfm.to(device)
 nfm = nfm.double()
-
+#
+plotsize = 3
 # Initialize ActNorm
 z, _ = nfm.sample(num_samples=2 ** 9)
 z_np = z.to('cpu').data.numpy()
 plt.figure(figsize=(15, 15))
-plt.hist2d(z_np[:, 0].flatten(), z_np[:, 1].flatten(), (200, 200), range=[[-10, 10], [-10, 10]])
+plt.hist2d(z_np[:, 0].flatten(), z_np[:, 1].flatten(), (200, 200), range=[[-plotsize, plotsize], [-plotsize, plotsize]])
 plt.gca().set_aspect('equal', 'box')
 plt.savefig(".//Visualization//init_guess.png",dpi = 600)
+plt.close()
 
 # Plot target distribution
 grid_size = 200
-xx, yy = torch.meshgrid(torch.linspace(-10, 10, grid_size), torch.linspace(-10, 10, grid_size))
+xx, yy = torch.meshgrid(torch.linspace(-plotsize, plotsize, grid_size), torch.linspace(-plotsize, plotsize, grid_size))
 zz = torch.cat([xx.unsqueeze(2), yy.unsqueeze(2)], 2).view(-1, 2)
 zz = zz.double().to(device)
 log_prob = target.log_prob(zz).to('cpu').view(*xx.shape)
@@ -64,9 +66,10 @@ plt.pcolormesh(xx, yy, prob.data.numpy())
 plt.contour(xx, yy, prob_target.data.numpy(), cmap=plt.get_cmap('cool'), linewidths=2)
 plt.gca().set_aspect('equal', 'box')
 plt.savefig(".//Visualization//init_distributions.png",dpi = 600)
+plt.close()
 
 # Train model
-max_iter = 20000
+max_iter = 50000
 num_samples = 2 * 4
 anneal_iter = 10000
 annealing = False
@@ -103,12 +106,14 @@ for it in tqdm(range(max_iter)):
         plt.contour(xx, yy, prob_target.data.numpy(), cmap=plt.get_cmap('cool'), linewidths=2)
         plt.gca().set_aspect('equal', 'box')
         plt.savefig(f".//Visualization//training_{it}.png",dpi = 600)
+        plt.close()
 
 
 plt.figure(figsize=(10, 10))
 plt.plot(loss_hist, label='loss')
 plt.legend()
 plt.savefig(".//Visualization//loss.png",dpi = 600)
+plt.close()
 # Plot learned posterior distribution
 log_prob = nfm.log_prob(zz).to('cpu').view(*xx.shape)
 prob = torch.exp(log_prob)
@@ -119,3 +124,4 @@ plt.pcolormesh(xx, yy, prob.data.numpy())
 plt.contour(xx, yy, prob_target.data.numpy(), cmap=plt.get_cmap('cool'), linewidths=2)
 plt.gca().set_aspect('equal', 'box')
 plt.savefig(".//Visualization//end_result.png",dpi = 600)
+plt.close()
