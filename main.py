@@ -9,8 +9,9 @@ import torch
 from tqdm import tqdm
 import customdistributions as cd
 torch.set_default_tensor_type(torch.DoubleTensor)
+SCIPY_ARRAY_API=1
 
-K = 16
+K = 8
 torch.manual_seed(2026)
 
 latent_size = 2
@@ -30,8 +31,8 @@ for i in range(K):
     #flows += [nf.flows.Permute(latent_size,mode = "swap")]
 
 # Set target and q0
-target = cd.MultivariateStudentT(torch.tensor([0,0],dtype = torch.float64),torch.tensor([[1,1],[1,2]],dtype=torch.float64),20)
-q0 = cd.Multivariate_Diag_t_Torch([0,0],[1.0,2.0],20)
+target = cd.MultivariateStudentT(torch.tensor([0,0]),torch.tensor([[1,1],[1,2]]),20)
+q0 = cd.Multivariate_Diag_t_qmc([0,0],[1.0,2.0],20)
 
 # Construct flow model
 nfm = nf.NormalizingFlow(q0=q0, flows=flows, p=target)
@@ -76,21 +77,21 @@ plt.close()
 # Train model
 max_iter = 10000
 num_samples = 2 ** 9
-anneal_iter = 100
+anneal_iter = 1000
 annealing = False
 show_iter = 500
 
 
 loss_hist = np.array([])
 
-optimizer = torch.optim.Adam(nfm.parameters(), lr=1e-4)
-#scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,max_iter,1e-07)
+optimizer = torch.optim.Adam(nfm.parameters(), lr=5e-5,weight_decay=5e-03)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,max_iter,1e-06)
 for it in tqdm(range(max_iter)):
     optimizer.zero_grad()
     if annealing:
         loss = nfm.reverse_kld(num_samples, beta=np.min([1., 0.01 + it / anneal_iter]))
     else:
-        #loss = nfm.reverse_alpha_div(num_samples, dreg=True, alpha=0.5)
+        #loss = nfm.reverse_alpha_div(num_samples, dreg=True)
         loss = nfm.reverse_kld(num_samples)
         #x = target.sample(num_samples).to(device)
         #loss = nfm.forward_kld(x)
@@ -106,7 +107,7 @@ for it in tqdm(range(max_iter)):
     if ~(torch.isnan(loss) | torch.isinf(loss)):
         loss.backward()
         optimizer.step()
-        #scheduler.step()
+        scheduler.step()
     else:
         optimizer = torch.optim.SGD(nfm.parameters(), lr=1e-6)
         #scheduler.step(epoch = it)
