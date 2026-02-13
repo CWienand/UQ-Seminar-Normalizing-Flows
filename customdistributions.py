@@ -10,7 +10,7 @@ from collections import abc
 import math
 
 
-class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
+class Multivariate_Diag_t_Torch(nf.distributions.base.BaseDistribution):
     """
     Diagonal Multivariate t-student implementation as normflows base. Underlying distributions
     are torch.student_t distributions. log_prob and sample wrap the relevant function calls and stack/sum the results to convert
@@ -26,54 +26,122 @@ class Multivariate_Diag_t(nf.distributions.base.BaseDistribution):
         returns Sequence of distribution samples and the log_prob of the sampled points
     """
 
-    def __init__(self, loc, diag, dfs):  
+    def __init__(self, loca, diag, df):  
        
         super().__init__()
-        self.loc = loc
+        self.loc = loca
         self.diag = diag
-        self.df = dfs
-        print([(lo, dia,df)for lo, dia, df in zip(loc,diag,dfs)])
-        self.distributions = [torch.distributions.studentT.StudentT(df,lo, dia)for lo, dia,df in zip(loc,diag,dfs)]
+        self.df = df
+        self.distributions = [torch.distributions.studentT.StudentT(df=df,loc=loc, scale=scale)for loc, scale in zip(loca,diag)]
         self.n_dims = len(diag)
         self.max_log_prob = 0.0
 
     def log_prob(self, z):
-        return sum([distribution.log_prob(z[:,i]) for i,distribution in enumerate(self.distributions)])
+        res = torch.tensor(sum([distribution.log_prob(z[:,i]) for i,distribution in enumerate(self.distributions)]))
+        return res
     
-    def sample(self, num_samples = 1):
-        if type(num_samples) is torch.Size:
-            return torch.stack([distribution.sample(num_samples) for distribution in self.distributions],axis = 1)
-        else:
-            return torch.stack([distribution.sample(torch.Size([num_samples])) for distribution in self.distributions],axis = 1)
+    def sample(self, num_samples = 1,**kwargs):
+        z, _ = self.forward(num_samples, **kwargs)
+        return z
     
     def forward(self, num_samples = 1, context = None):
-        z = self.sample(num_samples)
-        return torch.tensor(z), self.log_prob(z)
+        if type(num_samples) is torch.Size:
+            z = torch.stack([distribution.sample(num_samples) for distribution in self.distributions],axis = 1)
+        else:
+            z = torch.stack([distribution.sample(torch.Size([num_samples])) for distribution in self.distributions],axis = 1)
+        return z, self.log_prob(z)
 
 
-class Multivariate_t(nf.distributions.target.Target):
+class Multivariate_Diag_t_qmc(nf.distributions.base.BaseDistribution):
     """
-    Multivariate student t distribution wrapper from scipy.stats to normflows base distributions class.
-    Instantiates scipy.stats.multivariate_t_frozen istribution of the given parameters and makes the 
-    scipy distribution calls accessible for normflows (torch) ML functionalities.
+    Diagonal Multivariate t-student implementation as normflows base. Underlying distributions
+    are torch.student_t distributions. log_prob and sample wrap the relevant function calls and stack/sum the results to convert
+    to multidimensional case.
     Parameters:
     loc [torch.tensor([torch.float64])]: location of distribution center
-    matrix [torch.tensor([torch.float64],[torch.float64]))]: distribution matrix
+    diag [torch.tensor([torch.float64]))]: diagonal entries of the distribution matrix
     df [torch.float64]: number of degrees of freedom of the student t distribution
     Methods:
     log_prob(z: torch.tensor([torch.float64])) -> torch.float64: returns log probability of sample point z
+    sample(num_samples: int) -> torch.tensor([torch.float64]): returns num_samples samples from the underlying distribution
+    forward(num_samples: int = 1) -> Sequence(torch.float64, torch.tensor([torch.float64])):
+        returns Sequence of distribution samples and the log_prob of the sampled points
     """
 
-    def __init__(self, loc, matrix, df):
+    def __init__(self, loc, diag, df):  
        
         super().__init__()
         self.loc = loc
-        self.matrix = matrix
+        self.diag = np.diag(diag)
         self.df = df
-        self.distribution = stats.multivariate_t(loc, matrix,df)
-        self.n_dims = len(matrix)
+        #self.distributions = [torch.distributions.studentT.StudentT(df=df,loc=loc, scale=scale)for loc, scale,df in zip(loca,diag,dfs)]
+        self.distribution = stats.multivariate_t(loc, self.diag,df)
+        self.n_dims = len(diag)
         self.max_log_prob = 0.0
 
     def log_prob(self, z):
         res = torch.tensor(self.distribution.logpdf(z.detach().numpy()))
         return res
+    
+    def sample(self, num_samples = 1,**kwargs):
+        z, _ = self.forward(num_samples, **kwargs)
+        return z
+    
+    def forward(self, num_samples = 1, context = None):
+        if type(num_samples) is torch.Size:
+            z = torch.tensor(self.distribution.rvs(num_samples))
+        else:
+            z = torch.tensor(self.distribution.rvs(num_samples))
+        return z, self.log_prob(z)
+
+
+class MultivariateStudentT(nf.distributions.target.Target):
+    def __init__(self, loc, cov, df):
+        """
+        Multivariate Student-t with full covariance matrix.
+
+        Args:
+            loc (torch.tensor): mean vector of shape [n_dims]
+            cov (torch.tensor): covariance matrix of shape [n_dims, n_dims], positive definite
+            df (float): degrees of freedom
+        """
+        super().__init__()
+        self.loc = torch.tensor(loc, dtype=torch.float64)
+        self.cov = torch.tensor(cov, dtype=torch.float64)
+        self.df = df
+        self.n_dims = self.loc.shape[0]
+        self.L = torch.linalg.cholesky(self.cov).type(torch.DoubleTensor)  # Cholesky factor for sampling
+
+    def sample(self, num_samples=1):
+        # Sample chi-squared
+        w = torch.distributions.Chi2(self.df).sample((num_samples, 1)).type(torch.DoubleTensor)
+        # Sample standard normal
+        z = torch.randn((num_samples, self.n_dims)).type(torch.DoubleTensor)
+        # Apply transformation
+        x = self.loc + (z @ self.L.T) / torch.sqrt(w / self.df)
+        return x
+
+    def log_prob(self, x):
+        """
+        Compute log pdf of multivariate t distribution.
+        Formula: 
+        log p(x) = log Gamma((ν + d)/2) - log Gamma(ν/2) - 0.5 log |Σ| - d/2 log(νπ)
+                    - (ν + d)/2 * log(1 + Mahalanobis / ν)
+        """
+        d = torch.tensor(self.n_dims, dtype=x.dtype, device=x.device)
+        x_mu = x - self.loc
+        # Mahalanobis distance
+        L_inv = torch.linalg.inv(self.L)
+        y = x_mu @ L_inv.T
+        mahal = torch.sum(y**2, dim=-1)
+        log_det = 2 * torch.sum(torch.log(torch.diagonal(self.L)))
+        from torch import lgamma, log, pi
+        nu = torch.tensor(self.df, dtype=x.dtype, device=x.device)
+        pi = torch.tensor(torch.pi, dtype=x.dtype, device=x.device)
+        log_norm = lgamma((nu + d) / 2) - lgamma(nu / 2) - 0.5 * log_det - (d / 2) * log(nu * pi)
+        log_prob = log_norm - ((nu + d)/2) * torch.log(1 + mahal / nu)
+        return log_prob
+
+    def forward(self, num_samples=1, context=None):
+        x = self.sample(num_samples)
+        return x, self.log_prob(x)
