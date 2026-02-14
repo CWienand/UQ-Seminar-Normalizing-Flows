@@ -10,6 +10,8 @@ from tqdm import tqdm
 import customdistributions as cd
 torch.set_default_tensor_type(torch.DoubleTensor)
 SCIPY_ARRAY_API=1
+testcasename = "2D-QMC"
+
 
 K = 8
 torch.manual_seed(2026)
@@ -51,7 +53,7 @@ z_np = z.to('cpu').data.numpy()
 plt.figure(figsize=(15, 15))
 plt.hist2d(z_np[:, 0].flatten(), z_np[:, 1].flatten(), (200, 200), range=[[-plotsize, plotsize], [-plotsize, plotsize]])
 plt.gca().set_aspect('equal', 'box')
-plt.savefig(".//Visualization//init_guess.png",dpi = 150)
+plt.savefig(f".//Visualization//init_guess_{testcasename}.png",dpi = 150)
 plt.close()
 
 # Plot target distribution
@@ -71,20 +73,20 @@ plt.figure(figsize=(15, 15))
 plt.pcolormesh(xx, yy, prob.data.numpy())
 plt.contour(xx, yy, prob_target.data.numpy(), cmap=plt.get_cmap('cool'), linewidths=2)
 plt.gca().set_aspect('equal', 'box')
-plt.savefig(".//Visualization//init_distributions.png",dpi = 150)
+plt.savefig(f".//Visualization//init_distributions_{testcasename}.png",dpi = 150)
 plt.close()
 
 # Train model
-max_iter = 10000
+max_iter = 500
 num_samples = 2 ** 9
 anneal_iter = 1000
 annealing = False
-show_iter = 500
+show_iter = 50
 
 
 loss_hist = np.array([])
 
-optimizer = torch.optim.Adam(nfm.parameters(), lr=5e-5,weight_decay=5e-03)
+optimizer = torch.optim.SGD(nfm.parameters(), lr=5e-2,weight_decay=1e-06)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,max_iter,1e-06)
 for it in tqdm(range(max_iter)):
     optimizer.zero_grad()
@@ -118,6 +120,7 @@ for it in tqdm(range(max_iter)):
     if (it + 1) % show_iter == 0:
         nfm.eval()
         log_prob = nfm.log_prob(zz).to('cpu').view(*xx.shape)
+        samples, _ = nfm.sample(2**7)
         nfm.train()
         prob = torch.exp(log_prob)
         prob[torch.isnan(prob)] = 0
@@ -126,15 +129,16 @@ for it in tqdm(range(max_iter)):
         plt.pcolormesh(xx, yy, prob.data.numpy())
         plt.contour(xx, yy, prob_target.data.numpy(), cmap=plt.get_cmap('cool'), linewidths=2)
         plt.contour(xx, yy, prob.data.numpy(), cmap=plt.get_cmap('pink'), linewidths=2)
+        plt.scatter(samples[:,0].detach().numpy(),samples[:,1].detach().numpy(),color="w")
         plt.gca().set_aspect('equal', 'box')
-        plt.savefig(f".//Visualization//training_OldLoss_{it}.png",dpi = 150)
+        plt.savefig(f".//Visualization//training_{testcasename}_{it}.png",dpi = 150)
         plt.close()
 
 
         plt.figure(figsize=(10, 10))
         plt.plot(loss_hist, label='loss')
         plt.legend()
-        plt.savefig(".//Visualization//loss_OldLoss.png",dpi = 150)
+        plt.savefig(f".//Visualization//loss_{testcasename}.png",dpi = 150)
         plt.close()
 # Plot learned posterior distribution
 log_prob = nfm.log_prob(zz).to('cpu').view(*xx.shape)
@@ -145,5 +149,5 @@ plt.figure(figsize=(15, 15))
 plt.pcolormesh(xx, yy, prob.data.numpy())
 plt.contour(xx, yy, prob_target.data.numpy(), cmap=plt.get_cmap('cool'), linewidths=2)
 plt.gca().set_aspect('equal', 'box')
-plt.savefig(".//Visualization//end_result_OldLoss.png",dpi = 150)
+plt.savefig(f".//Visualization//end_result_{testcasename}.png",dpi = 150)
 plt.close()
