@@ -63,7 +63,49 @@ class Multivariate_Diag_t_Torch(nf.distributions.base.BaseDistribution):
         else:
             z = torch.stack([distribution.sample(torch.Size([num_samples])) for distribution in self.distributions],axis = 1)
         return z, self.log_prob(z)
+    
 
+class Multivariate_Diag_Base_MC_mapping(nf.distributions.base.BaseDistribution):
+    """
+    Diagonal Multivariate t-student implementation as normflows base with qmc sampling. Underlying distributions
+    are torch_betainc.student_t distributions and for the inverse cdf we use standard scipy t. 
+    log_prob and sample wrap the relevant function calls and stack/sum the results to convert to multidimensional case.
+    Parameters:
+    loc, [torch.tensor([torch.float64])]: location of distribution center
+    diag, [torch.tensor([torch.float64]))]: diagonal entries of the distribution matrix
+    df, float: number of degrees of freedom of the student t distribution
+    Methods:
+    log_prob(z: torch.tensor([torch.float64])) -> torch.float64: returns log probability of sample point z
+    sample(num_samples: int) -> torch.tensor([torch.float64]): returns num_samples samples from the underlying distribution
+    forward(num_samples: int = 1) -> Sequence(torch.float64, torch.tensor([torch.float64])):
+        returns Sequence of distribution samples and the log_prob of the sampled points
+    """
+
+    def __init__(self, loca, diag, df):  
+       
+        super().__init__()
+        self.loc = loca
+        self.diag = diag
+        self.df = df
+        self.distributions = [torch_betainc.StudentT(df=df,loc=loc, scale=scale)for loc, scale in zip(loca,diag)]
+        self.n_dims = len(diag)
+        self.max_log_prob = 0.0
+
+    def log_prob(self, z):
+        res = sum([distribution.log_prob(z[:,i]) for i,distribution in enumerate(self.distributions)])
+        return res
+    
+    def sample(self, num_samples = 1,**kwargs):
+        z, _ = self.forward(num_samples, **kwargs)
+        return z
+    
+    def forward(self, num_samples = 1, context = None):
+        xi_RQMC = torch.rand((num_samples,self.n_dims)) # generates digitally shifted Sobol points.
+        z = torch.stack([torch.tensor(scale*stats.t.ppf(np.array(xi_RQMC[:,i]),self.df)+loc) for i,(loc,scale) in enumerate(zip(self.loc,self.diag))],axis = 1)
+        #Sanity check:          
+        #print(self.distributions[i].cdf(z[])-torch.tensor(xi_RQMC)) 
+        #Should give something close 0 for the shape of the sample!   
+        return z, self.log_prob(z)
 
 class Multivariate_Diag_t_qmc(nf.distributions.base.BaseDistribution):
     """
@@ -100,8 +142,8 @@ class Multivariate_Diag_t_qmc(nf.distributions.base.BaseDistribution):
         return z
     
     def forward(self, num_samples = 1, context = None):
-        xi_RQMC = qmcpy.DigitalNetB2(self.n_dims, order = "GRAY", randomize='DS').gen_samples(num_samples) # generates digitally shifted Sobol points.
-        z = torch.stack([torch.tensor(scale*stats.t.ppf(np.array(xi_RQMC[:,i]),self.df)-loc) for i,(loc,scale) in enumerate(zip(self.loc,self.diag))],axis = 1)
+        xi_RQMC = qmcpy.DigitalNetB2(self.n_dims, order = "GRAY", randomize='LMS DS').gen_samples(num_samples) # generates digitally shifted Sobol points.
+        z = torch.stack([torch.tensor(scale*stats.t.ppf(np.array(xi_RQMC[:,i]),self.df)+loc) for i,(loc,scale) in enumerate(zip(self.loc,self.diag))],axis = 1)
         #Sanity check:          
         #print(self.distribution.cdf(z)-torch.tensor(xi_RQMC)) 
         #Should give something close 0 for the shape of the sample!   
