@@ -189,6 +189,12 @@ class Multivariate_Diag_norm_qmc(nf.distributions.base.BaseDistribution):
         #print(z.shape)
         return z, self.log_prob(z)
 
+    def forward_direct_input(self, x, context = None):
+        #print(xi_RQMC.shape)
+        z = torch.stack([distribution.icdf(x[:,i]) for i,distribution in enumerate(self.distributions)],axis = 1)
+        #print(z.shape)
+        return z, self.log_prob(z)
+
 
 class MultivariateStudentT(nf.distributions.target.Target):
     def __init__(self, loc, cov, df):
