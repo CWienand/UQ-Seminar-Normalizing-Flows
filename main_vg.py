@@ -214,12 +214,12 @@ def main():
     payoff_data = {"basket_put":basket_put_price,"call_on_min":call_on_min_price}
 
     num_layers_list = [16]
-    max_iters = [2000]
-    num_samples_init = [*np.array(np.logspace(10,12,3,base=2.0)).astype("int")]
+    max_iters = [500,1000,2000]
+    num_samples_init = [*np.array(np.logspace(8,10,3,base=2.0)).astype("int")]
     jump_iters = [100000]
     forward_kls = [False, True]
     optimizer_methods = ["adam","sgd"]
-    lrs = [*np.logspace(-3,-2,2)]
+    lrs = [1e-02]
     weight_decays = [1e-06]
 
     transform_parameter_array = np.array([*product(num_layers_list,max_iters,num_samples_init,jump_iters,forward_kls,optimizer_methods,lrs,weight_decays)])
@@ -318,15 +318,17 @@ def main():
                     transform_params= row,
                     TOLR = TOLR
                 )
-            plot_logprob("test",used_model)
             if not i:
                 nfm_losses.append(nfm_loss)
             price_estimates_NF[i] = [*price_estimates_NF[i]]+[price_estimate_NF]
             error_estimates_NF[i] = [*error_estimates_NF[i]]+[error_estimate_NF]
             price_estimates_classic[i] = [*price_estimates_classic[i]]+[price_estimates_classic_source[i]]
             error_estimates_classic[i] = [*error_estimates_classic[i]]+[error_estimates_classic_source[i]]
-            print(price_estimates_NF)
+            #print(price_estimates_NF)
         print(i,j)
+        elemstring = '-'.join([f"{name}={str(value)}"for name, value in zip(transform_parameter_df,row)])
+        print(elemstring)
+        plot_logprob(f"sampling_space_{elemstring}",used_model)
         output_df= pd.DataFrame({
             "nfm_losses":nfm_losses,
             **{f"price_estimates_NF_{N_samples}":price_estimates_NF[k]for k,N_samples in enumerate(N_samples_list)},
@@ -351,12 +353,18 @@ def plot_logprob(filename, nfm, gridsize = 2**6):
     with torch.no_grad():
         distribution_points,base_log_prob = nfm.q0.forward_given_samples(points)
         print(distribution_points)
-        data = nfm.log_prob(distribution_points)+base_log_prob
+        _, data = nfm.forward_and_log_det(distribution_points)
+        data += base_log_prob
     Z = data.reshape(grid_x.shape)
     plt.pcolormesh(grid_x,grid_y,Z, cmap='autumn')
     plt.title("Log Probability of [0,1]x[0,1] grid passed through the normalizing flow")
     plt.colorbar(label='Log Probability Density')
-    plt.savefig(f".//Visualization//{filename}.png")
+    plt.savefig(f".//Visualization//Log_Prob_{filename}.png")
+    plt.close()
+    plt.pcolormesh(grid_x,grid_y,torch.exp(Z), cmap='autumn')
+    plt.title("Probability of [0,1]x[0,1] grid passed through the normalizing flow")
+    plt.colorbar(label='Probability Density')
+    plt.savefig(f".//Visualization//Prob_{filename}.png")
     plt.close()
 
 if __name__ == "__main__":

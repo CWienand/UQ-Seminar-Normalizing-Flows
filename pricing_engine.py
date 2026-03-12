@@ -146,7 +146,7 @@ def assign_flows(K=16,latent_size = 4,non_lin = "tanh"):
 
 
 def train_flow(
-        flow,max_iter = 1000, num_samples_init = 2**7, jump_iter = 10000, annealing_goal = 1e-04,
+        flow,max_iter = 1000, num_samples_init = 2**7, jump_iter = 10000, annealing_goal = None,
         forward_kl = False, optimizer_method = "Adam",lr = 1e-02, weight_decay = 1e-06
         ):
     num_samples = num_samples_init
