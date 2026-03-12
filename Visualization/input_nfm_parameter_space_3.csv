@@ -1,0 +1,13 @@
+,num_layers_list,max_iters,num_samples_init,jump_iters,forward_kls,optimizer_methods,lrs,weight_decays
+0,16,1000,1024,100000,False,adam,0.001,1e-06
+1,16,1000,1024,100000,False,adam,0.01,1e-06
+2,16,1000,1024,100000,False,sgd,0.001,1e-06
+3,16,1000,1024,100000,False,sgd,0.01,1e-06
+4,16,1000,2048,100000,False,adam,0.001,1e-06
+5,16,1000,2048,100000,False,adam,0.01,1e-06
+6,16,1000,2048,100000,False,sgd,0.001,1e-06
+7,16,1000,2048,100000,False,sgd,0.01,1e-06
+8,16,1000,4096,100000,False,adam,0.001,1e-06
+9,16,1000,4096,100000,False,adam,0.01,1e-06
+10,16,1000,4096,100000,False,sgd,0.001,1e-06
+11,16,1000,4096,100000,False,sgd,0.01,1e-06
