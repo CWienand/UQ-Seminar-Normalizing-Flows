@@ -24,6 +24,7 @@ MC relative statistical error =  0.0004
 def data_analysis():
     basket_put_price = 7.49067 
     call_on_min_price = 4.57777 
+    """
     inputs = pd.read_csv("input_nfm_parameter_space.csv")
     outputs = pd.read_csv("checkpoint.csv")
     fulldf = pd.concat((inputs,outputs),axis = 1).drop(columns=("Unnamed: 0"))
@@ -127,8 +128,8 @@ def data_analysis():
         plt.title("Pricing Deviation Comparison QMC, NFM for 2**14 Samples and 30 Shifts")
         fig.savefig(f".\\Visualization\\pricing_deviation_forward.png")
     print(backward_df["num_samples_init"])
-
-    full_pricing_sweep_df = pd.read_csv(".\\Visualization//Analysis2D.csv").drop(columns=("Unnamed: 0"))
+    """
+    full_pricing_sweep_df = pd.read_csv(".\\Visualization//Analysis2D_test.csv").drop(columns=("Unnamed: 0"))
     full_pricing_sweep_df = full_pricing_sweep_df[full_pricing_sweep_df["forward_kls"]==False]
     basket_put_price_NF = np.mean(full_pricing_sweep_df[f"price_estimates_NF_{2**14}"])
     basket_put_price_QMC = 0.5*(np.mean(full_pricing_sweep_df[f"price_estimates_QMC_{2**14}"])+np.mean(full_pricing_sweep_df[f"price_estimates_QMC_{2**13}"]))
@@ -153,9 +154,9 @@ def data_analysis():
     plt.xlabel("Normalizing Flow Training Losses [-]")
     plt.ylabel("Relative Pricing Difference [-]")
     plt.plot(np.linspace(min(full_pricing_sweep_df["nfm_losses"]),max(full_pricing_sweep_df["nfm_losses"]),len(full_pricing_sweep_df["nfm_losses"])),full_pricing_sweep_df["price_estimate_difference_QMC_1024"],linestyle = "--",label = "QMC Pricing Deviation")
-    plt.legend()
+    plt.legend(loc = 'upper left')
     plt.title("Relative Pricing Difference Comparison QMC, NFM for 2**10 Samples and 30 Shifts")
-    fig.savefig(f".\\Visualization\\Relative_Pricing_deviation_training_2D.png")
+    fig.savefig(f".\\Visualization\\Relative_Pricing_deviation_training_2D_repeat.png")
     plt.close()
     fig,ax = plt.subplots(figsize=(10, 5))
     adam_df_4096 = adam_df[adam_df["num_samples_init"] == 4096]
@@ -173,8 +174,8 @@ def data_analysis():
     plt.xscale("log")
     plt.xlabel("Number of Pricing Samples [-]")
     plt.ylabel("Relative Pricing Difference [-]")
-    plt.title("Relative Pricing Difference Comparison QMC, NFM for 2**12 Training Samples and High LR")
-    fig.savefig(f".\\Visualization\\Relative_Pricing_diff_sweep_2D.png")
+    plt.title("Relative Pricing Difference of Analytical and NFM methods relative to mean3 of NFM at 2**14 Samples over all methods")
+    fig.savefig(f".\\Visualization\\Relative_Pricing_diff_sweep_2D_repeat.png")
     plt.close()
     fig,ax = plt.subplots(figsize=(10, 5))
     adam_df_4096 = adam_df[adam_df["num_samples_init"] == 4096]
@@ -193,7 +194,7 @@ def data_analysis():
     plt.xlabel("Number of Pricing Samples [-]")
     plt.ylabel("Relative Pricing Deviation [-]")
     plt.title("Pricing Deviation Comparison Analytical, NFM averaged over Design Space")
-    fig.savefig(f".\\Visualization\\Relative_Pricing_deviation_sweep_2D.png")
+    fig.savefig(f".\\Visualization\\Relative_Pricing_deviation_sweep_2D_repeat.png")
     plt.close()
     print("QMC:")
     print([np.mean(adam_df[f"error_estimates_QMC_{num_samples_pricing}"])for num_samples_pricing in num_samples_pricing_list])
@@ -215,7 +216,7 @@ def main():
 
     num_layers_list = [16]
     max_iters = [500,1000,2000]
-    num_samples_init = [*np.array(np.logspace(8,10,3,base=2.0)).astype("int")]
+    num_samples_init = [*np.array(np.logspace(8,12,5,base=2.0)).astype("int")]
     jump_iters = [100000]
     forward_kls = [False, True]
     optimizer_methods = ["adam","sgd"]
@@ -255,14 +256,15 @@ def main():
     nu = 0.1
     sigma = 0.4 * np.ones(d)
     theta = -0.3 * np.ones(d)
-    rho = 0.2*np.ones((d,d))
+    rho = 0.2*np.ones((d,d))+0.8*np.diag(np.ones(d))
     rho = np.array([[elem/(1+0.1*np.abs(i-j))for j,elem in enumerate(row)]for i,row in enumerate(rho)])
+    print(rho)
     #SIGMA = make_spd_matrix(n_dim = d)
     SIGMA = covariance_matrix(sigma,rho)
     print(f"Covariance Matrix:\n{SIGMA}")
     TOLR = None # specify relative error
     VG_option_params = (d,S0,K,r,q,T,SIGMA,theta,nu)
-    N_samples_list = [*np.logspace(4,8,5,base = 2,dtype=int)]
+    N_samples_list = [*np.logspace(4,14,11,base = 2,dtype=int)]
     S_shifts = 30
     output_df= pd.DataFrame({
         "nfm_losses":[],
@@ -347,7 +349,7 @@ def main():
 
 
 def plot_logprob(filename, nfm, gridsize = 2**6):
-    grid_x,grid_y = torch.meshgrid(torch.linspace(2**(-5),1-2**(-5),gridsize),torch.linspace(2**(-5),1-2**(-5),gridsize),indexing = "ij")
+    grid_x,grid_y = torch.meshgrid(torch.linspace(2**(-10),1-2**(-10),gridsize),torch.linspace(2**(-10),1-2**(-10),gridsize),indexing = "ij")
     points = torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
     print(points.shape)
     with torch.no_grad():
@@ -356,13 +358,14 @@ def plot_logprob(filename, nfm, gridsize = 2**6):
         _, data = nfm.forward_and_log_det(distribution_points)
         data += base_log_prob
     Z = data.reshape(grid_x.shape)
+    print(sum(sum(torch.exp(Z)))) #Should be close to 1!
     plt.pcolormesh(grid_x,grid_y,Z, cmap='autumn')
-    plt.title("Log Probability of [0,1]x[0,1] grid passed through the normalizing flow")
+    plt.title("Log Probability of [0,1]x[0,1] grid")
     plt.colorbar(label='Log Probability Density')
     plt.savefig(f".//Visualization//Log_Prob_{filename}.png")
     plt.close()
     plt.pcolormesh(grid_x,grid_y,torch.exp(Z), cmap='autumn')
-    plt.title("Probability of [0,1]x[0,1] grid passed through the normalizing flow")
+    plt.title("Probability of [0,1]x[0,1] grid")
     plt.colorbar(label='Probability Density')
     plt.savefig(f".//Visualization//Prob_{filename}.png")
     plt.close()
@@ -371,5 +374,5 @@ if __name__ == "__main__":
     torch.set_default_dtype(torch.float64)
     SCIPY_ARRAY_API=1
     #plot_logprob("test", None)
-    main()
+    #main()
     data_analysis()
