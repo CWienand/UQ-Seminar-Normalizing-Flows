@@ -330,7 +330,7 @@ def main():
         print(i,j)
         elemstring = '-'.join([f"{name}={str(value)}"for name, value in zip(transform_parameter_df,row)])
         print(elemstring)
-        #plot_logprob(f"sampling_space_{elemstring}",used_model)
+        plot_logprob(f"sampling_space_{elemstring}",used_model)
         output_df= pd.DataFrame({
             "nfm_losses":nfm_losses,
             **{f"price_estimates_NF_{N_samples}":price_estimates_NF[k]for k,N_samples in enumerate(N_samples_list)},
@@ -356,16 +356,16 @@ def plot_logprob(filename, nfm, gridsize = 2**6):
         distribution_points,base_log_prob = nfm.q0.forward_given_samples(points)
         print(distribution_points)
         _, data = nfm.forward_and_log_det(distribution_points)
-        data += base_log_prob
+        data -= base_log_prob
     Z = data.reshape(grid_x.shape)
     print(Z.shape)
-    print(sum(sum(torch.exp(Z)))) #Should be close to 1!
-    plt.pcolormesh(grid_x,grid_y,Z, cmap='autumn')
+    print(f"This Value Should be close to 1!\n {sum(sum(torch.exp(Z)))}") #Should be close to 1!
+    plt.pcolormesh(grid_x,grid_y,-Z, cmap='autumn')
     plt.title("Log Probability of [0,1]x[0,1] grid")
     plt.colorbar(label='Log Probability Density')
     plt.savefig(f".//Visualization//Log_Prob_{filename}.png")
     plt.close()
-    plt.pcolormesh(grid_x,grid_y,torch.exp(Z), cmap='autumn')
+    plt.pcolormesh(grid_x,grid_y,torch.exp(-Z), cmap='autumn')
     plt.title("Probability of [0,1]x[0,1] grid")
     plt.colorbar(label='Probability Density')
     plt.savefig(f".//Visualization//Prob_{filename}.png")

@@ -148,14 +148,14 @@ class NF_PricingEngine:
         with torch.no_grad():
             distribution_points,base_log_prob = self.normalizing_flow.q0.forward_given_samples(points)
             u, logpsi = self.normalizing_flow.forward_and_log_det(distribution_points)
-            logpsi += base_log_prob
+            logpsi -= base_log_prob
         Z = logpsi.reshape(grid_x.shape)
         
         u = u.detach().numpy()
         print(f"Point shape: {u.shape}")
         print(f"log_prob shape: {logpsi.shape}")
         # Calculate the PDF of the transformed distribution
-        psi = torch.exp(logpsi).detach().numpy()
+        psi = torch.exp(-logpsi).detach().numpy()
         QMC_estimate = np.zeros(N_grid**2)
         for n in range(N_grid**2):
             # Calculate the characteristic function and payoff transform
@@ -165,6 +165,7 @@ class NF_PricingEngine:
             # Accumulate the estimate for this sample
             QMC_estimate[n] = constant_factor * np.real(np.exp(1j * u[n] @ X0) * Phi * Phat) / psi[n]
         # Store the replicate result
+        print(f"Mean Price Estimate: {np.mean(QMC_estimate)}")
         print(f"QMC estimate raw shape: {QMC_estimate.shape}")
         QMC_estimate = QMC_estimate.reshape(grid_x.detach().numpy().shape)
         print(f"QMC estimate shape: {QMC_estimate.shape}")
