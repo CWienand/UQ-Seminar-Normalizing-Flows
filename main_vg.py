@@ -236,7 +236,7 @@ def main():
         "lrs":transform_parameter_array[:,6].astype(np.float64),
         "weight_decays":transform_parameter_array[:,7].astype(np.float64)
     })
-    transform_parameter_df.to_csv(".\\Visualization\\input_nfm_parameter_space_2D_repeat.csv")
+    transform_parameter_df.to_csv(".\\Visualization\\param_space.csv")
     #    def assignParamRows(self):      #Assembles the given Parameter ranges to all possible combinations
     #
     #    self.RowArray=np.array([*product(*self.params)])
@@ -283,6 +283,45 @@ def main():
     error_estimates_classic_source = len(N_samples_list)*[[]]
     print(error_estimates_classic)
     N_Samples_curr_list=[]
+    points, probs, Prices = QMC_fourier_pricing_engine(
+                model_name,
+                payoff_name,
+                VG_option_params,
+                1,
+                S_shifts,
+                transform_distribution= None,
+                transform_params= None,
+                TOLR = TOLR,
+                plot_prob_space = True
+            )
+    raw_points_NFM,points_NFM, probs_NFM, Prices_NFM,NFM_Model = NF_QMC_fourier_pricing_engine(
+                    model_name,
+                    payoff_name,
+                    VG_option_params,
+                    1,
+                    S_shifts,
+                    transform_distribution= None,
+                    transform_params= transfrom_parameter_list[0],
+                    TOLR = TOLR,
+                    plot_prob_space = True
+
+                )
+    print(points_NFM)
+    print(min(points[:,0]),max(points[:,0]))
+    points = points.reshape((64,64,2))
+    Prices = Prices.reshape((64,64))
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+    surf = ax.plot_surface(points[:,:,0], points[:,:,1], Prices, cmap="autumn",
+                   linewidth=0, antialiased=False)
+    plt.title("Probability weighted price estimate on base space")
+    fig.colorbar(surf, shrink=0.5, aspect=5, label = r"$\phi$")
+    plt.savefig(f".//Visualization//Price_Estimate_analytical.png")
+    plt.close()
+    plt.pcolormesh(points[:,:,0], points[:,:,1], Prices, cmap='autumn')
+    plt.title("Price Estimate on transformed space")
+    plt.colorbar(label='Estimated Price')
+    plt.savefig(f".//Visualization//Price_Estimate_analytical_colormap.png")
+    plt.close()
     for i, N_samples in enumerate(N_samples_list):
         print(i)
         price_estimates_classic_source[i], error_estimates_classic_source[i] = QMC_fourier_pricing_engine(
@@ -338,10 +377,10 @@ def main():
             **{f"price_estimates_QMC_{N_samples}":price_estimates_classic[k]for k,N_samples in enumerate(N_samples_list)},
             **{f"error_estimates_QMC_{N_samples}":error_estimates_classic[k]for k,N_samples in enumerate(N_samples_list)}
         })
-        output_df.to_csv(".\\Visualization\\checkpoint2D_repeat.csv")
+        output_df.to_csv(".\\Visualization\\check.csv")
 
     full_df = pd.concat((transform_parameter_df,output_df),axis ="columns")
-    full_df.to_csv(".\\Visualization\\Analysis2D_repeat.csv")
+    full_df.to_csv(".\\Visualization\\Ana.csv")
 
     #print(f"Estimated Price: {round(price_estimate,5)}, Statistical Error: {round(error_estimate,5)}, Relative Error: {round(error_estimate / price_estimate,5)}")
     #print("Normalizing Flow based Sampling:")
@@ -357,9 +396,9 @@ def plot_logprob(filename, nfm, gridsize = 2**6):
         print(distribution_points)
         _, data = nfm.forward_and_log_det(distribution_points)
         data -= base_log_prob
+    print(f"This Value Should be close to 1!\n {torch.mean(torch.exp(-data))}")
     Z = data.reshape(grid_x.shape)
-    print(Z.shape)
-    print(f"This Value Should be close to 1!\n {sum(sum(torch.exp(Z)))}") #Should be close to 1!
+    print(Z.shape) #Should be close to 1!
     plt.pcolormesh(grid_x,grid_y,-Z, cmap='autumn')
     plt.title("Log Probability of [0,1]x[0,1] grid")
     plt.colorbar(label='Log Probability Density')

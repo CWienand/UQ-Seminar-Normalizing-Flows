@@ -26,7 +26,7 @@ class PricingEngine:
         return optimize_damping_parameters(self.payoff, self.model, d, S0, K)
 
     
-    def compute_price(self, d, S0, K, r, T, N_samples, S_shifts):
+    def compute_price(self, d, S0, K, r, T, N_samples, S_shifts,grid_size = None):
     # Optimize R based on the model and payoff constraints
     
         R = self.optimize_R(d = d, S0=S0, K=K)
@@ -45,36 +45,65 @@ class PricingEngine:
         
         # Initialize array to store QMC replicates
         RQMC_replicates = np.zeros(S_shifts)
-    
-        for s in range(S_shifts):
-            # Generate QMC points and map them using ICDF
-            QMC_points = qmcpy.DigitalNetB2(d + 1, graycode=True, randomize='DS', seed=s).gen_samples(N_samples)
-            QMC_points_last = QMC_points[:, -1]
-            QMC_points_mapped = norm.ppf(q=QMC_points[:, :-1], loc=0, scale=1)
-            
-            QMC_estimate = 0
-            for n in range(N_samples):
-                # Transform the QMC points using L_IS and ICDF
-                u = L_IS @ QMC_points_mapped[n] * self.transform.icdf(QMC_points_last[n])
+        if grid_size:
+            S_shifts = 1
+            for s in range(S_shifts):
+                # Generate QMC points and map them using ICDF
+                grid_x,grid_y,grid_z = torch.meshgrid(torch.linspace(2**(-10),1-2**(-10),grid_size),torch.linspace(2**(-10),1-2**(-10),grid_size),torch.linspace(2**(-10),1-2**(-10),grid_size),indexing = "ij")
+                QMC_points = torch.stack([grid_x.flatten(), grid_y.flatten(),grid_z.flatten()], dim=1).detach().numpy()
+                print(QMC_points.shape)
+                QMC_points_last = QMC_points[:, -1]
+                QMC_points_mapped = norm.ppf(q=QMC_points[:, :-1], loc=0, scale=1)
+                print(QMC_points_last.shape)
+                print(QMC_points_mapped.shape)
+                QMC_estimate = np.zeros(grid_size**d)
+                output_points = np.zeros((grid_size**d,d))
+                output_probabilities = np.zeros(grid_size**d)
+                for n in range(grid_size**d):
+                    # Transform the QMC points using L_IS and ICDF
+                    u = L_IS @ QMC_points_mapped[n] * self.transform.icdf(QMC_points_last[n])
+                    output_points[n] = u
+                    # Calculate the characteristic function and payoff transform
+                    Phi = self.model.characteristic_function(u + 1j*R)
+                    Phat = self.payoff.fourier_transform(u + 1j*R)
+                    
+                    # Calculate the PDF of the transformed distribution
+                    psi = self.transform.pdf(u)
+                    output_probabilities[n] = psi
+                    
+                    # Accumulate the estimate for this sample
+                    QMC_estimate[n] = constant_factor * np.real(np.exp(1j * u @ X0) * Phi * Phat) / psi
+            return output_points, output_probabilities, QMC_estimate
+        else:
+            for s in range(S_shifts):
+                # Generate QMC points and map them using ICDF
+                QMC_points = qmcpy.DigitalNetB2(d + 1, graycode=True, randomize='DS', seed=s).gen_samples(N_samples)
+                QMC_points_last = QMC_points[:, -1]
+                QMC_points_mapped = norm.ppf(q=QMC_points[:, :-1], loc=0, scale=1)
+                #print(QMC_points.shape)
                 
-                # Calculate the characteristic function and payoff transform
-                Phi = self.model.characteristic_function(u + 1j*R)
-                Phat = self.payoff.fourier_transform(u + 1j*R)
+                QMC_estimate = 0
+                for n in range(N_samples):
+                    # Transform the QMC points using L_IS and ICDF
+                    u = L_IS @ QMC_points_mapped[n] * self.transform.icdf(QMC_points_last[n])
+                    
+                    # Calculate the characteristic function and payoff transform
+                    Phi = self.model.characteristic_function(u + 1j*R)
+                    Phat = self.payoff.fourier_transform(u + 1j*R)
+                    
+                    # Calculate the PDF of the transformed distribution
+                    psi = self.transform.pdf(u)
+                    
+                    # Accumulate the estimate for this sample
+                    QMC_estimate += constant_factor * np.real(np.exp(1j * u @ X0) * Phi * Phat) / psi
                 
-                # Calculate the PDF of the transformed distribution
-                psi = self.transform.pdf(u)
-                
-                # Accumulate the estimate for this sample
-                QMC_estimate += constant_factor * np.real(np.exp(1j * u @ X0) * Phi * Phat) / psi
-            
-            # Store the replicate result
-            RQMC_replicates[s] = QMC_estimate / N_samples
-    
-        # Calculate the final estimate and statistical error
-        RQMC_estimate = np.mean(RQMC_replicates)
-        RQMC_stat_error = 1.96 * np.std(RQMC_replicates) / np.sqrt(S_shifts)
-        return RQMC_estimate, RQMC_stat_error
-
+                # Store the replicate result
+                RQMC_replicates[s] = QMC_estimate / N_samples
+        
+            # Calculate the final estimate and statistical error
+            RQMC_estimate = np.mean(RQMC_replicates)
+            RQMC_stat_error = 1.96 * np.std(RQMC_replicates) / np.sqrt(S_shifts)
+            return RQMC_estimate, RQMC_stat_error
 
 class NF_PricingEngine:
     def __init__(self, model, payoff, normalizing_flow):
@@ -88,7 +117,7 @@ class NF_PricingEngine:
         """
         return optimize_damping_parameters(self.payoff, self.model, d, S0, K)
     
-    def compute_price(self, d, S0, K, r, T, N_samples, S_shifts):
+    def compute_price(self, d, S0, K, r, T, N_samples, S_shifts, grid_size = None):
     # Optimize R based on the model and payoff constraints
     
         R = self.optimize_R(d = d, S0=S0, K=K)
@@ -104,29 +133,53 @@ class NF_PricingEngine:
         
         # Initialize array to store QMC replicates
         RQMC_replicates = np.zeros(S_shifts)
-    
-        for s in range(S_shifts):
-            # Transform the QMC points using L_IS and ICDF
-            u, logpsi = self.normalizing_flow.sample(N_samples)
+        if grid_size:
+            grid_x,grid_y = torch.meshgrid(torch.linspace(2**(-10),1-2**(-10),grid_size),torch.linspace(2**(-10),1-2**(-10),grid_size),indexing = "ij")
+            print(grid_x.shape)
+            points = torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
+            with torch.no_grad():
+                distribution_points,base_log_prob = self.normalizing_flow.q0.forward_given_samples(points)
+                u, logpsi = self.normalizing_flow.forward_and_log_det(distribution_points)
+                logpsi -= base_log_prob
+            Z = logpsi.reshape(grid_x.shape)
             u = u.detach().numpy()
+            print(f"Point shape: {u.shape}")
+            print(f"log_prob shape: {logpsi.shape}")
             # Calculate the PDF of the transformed distribution
-            psi = torch.exp(logpsi).detach().numpy()
-            QMC_estimate = 0
-            for n in range(N_samples):
-
+            psi = torch.exp(-logpsi).detach().numpy()
+            QMC_estimate = np.zeros(grid_size**d)
+            for n in range(grid_size**d):
                 # Calculate the characteristic function and payoff transform
                 Phi = self.model.characteristic_function(u[n] + 1j*R)
                 Phat = self.payoff.fourier_transform(u[n] + 1j*R)
+
                 
                 # Accumulate the estimate for this sample
-                QMC_estimate += constant_factor * np.real(np.exp(1j * u[n] @ X0) * Phi * Phat) / psi[n]
-                # Store the replicate result
-                RQMC_replicates[s] = QMC_estimate / N_samples
-    
-        # Calculate the final estimate and statistical error
-        RQMC_estimate = np.mean(RQMC_replicates)
-        RQMC_stat_error = 1.96 * np.std(RQMC_replicates) / np.sqrt(S_shifts)
-        return RQMC_estimate, RQMC_stat_error
+                QMC_estimate[n] = constant_factor * np.real(np.exp(1j * u[n] @ X0) * Phi * Phat) / psi[n]
+            return points, u,psi, QMC_estimate
+        else:
+            for s in range(S_shifts):
+                # Transform the QMC points using L_IS and ICDF
+                u, logpsi = self.normalizing_flow.sample(N_samples)
+                u = u.detach().numpy()
+                # Calculate the PDF of the transformed distribution
+                psi = torch.exp(logpsi).detach().numpy()
+                QMC_estimate = 0
+                for n in range(N_samples):
+
+                    # Calculate the characteristic function and payoff transform
+                    Phi = self.model.characteristic_function(u[n] + 1j*R)
+                    Phat = self.payoff.fourier_transform(u[n] + 1j*R)
+                    
+                    # Accumulate the estimate for this sample
+                    QMC_estimate += constant_factor * np.real(np.exp(1j * u[n] @ X0) * Phi * Phat) / psi[n]
+                    # Store the replicate result
+                    RQMC_replicates[s] = QMC_estimate / N_samples
+        
+            # Calculate the final estimate and statistical error
+            RQMC_estimate = np.mean(RQMC_replicates)
+            RQMC_stat_error = 1.96 * np.std(RQMC_replicates) / np.sqrt(S_shifts)
+            return RQMC_estimate, RQMC_stat_error
 
     def plot_integrand(self, d, S0, K, r, T, N_grid):
     # Optimize R based on the model and payoff constraints
@@ -144,6 +197,7 @@ class NF_PricingEngine:
     
         # Transform the QMC points using L_IS and ICDF
         grid_x,grid_y = torch.meshgrid(torch.linspace(2**(-10),1-2**(-10),N_grid),torch.linspace(2**(-10),1-2**(-10),N_grid),indexing = "ij")
+        print(grid_x.shape)
         points = torch.stack([grid_x.flatten(), grid_y.flatten()], dim=1)
         with torch.no_grad():
             distribution_points,base_log_prob = self.normalizing_flow.q0.forward_given_samples(points)
@@ -157,23 +211,43 @@ class NF_PricingEngine:
         # Calculate the PDF of the transformed distribution
         psi = torch.exp(-logpsi).detach().numpy()
         QMC_estimate = np.zeros(N_grid**2)
+        Phi_arr = np.zeros(N_grid**2)
+        Phat_arr = np.zeros(N_grid**2)
+        Raw_pricing = np.zeros(N_grid**2)
         for n in range(N_grid**2):
             # Calculate the characteristic function and payoff transform
             Phi = self.model.characteristic_function(u[n] + 1j*R)
             Phat = self.payoff.fourier_transform(u[n] + 1j*R)
+
+            Phi_arr[n] = Phi
+            Phat_arr[n] = Phat
             
             # Accumulate the estimate for this sample
             QMC_estimate[n] = constant_factor * np.real(np.exp(1j * u[n] @ X0) * Phi * Phat) / psi[n]
+            Raw_pricing[n] = constant_factor * np.real(np.exp(1j * u[n] @ X0) * Phi * Phat)
+
         # Store the replicate result
         print(f"Mean Price Estimate: {np.mean(QMC_estimate)}")
         print(f"QMC estimate raw shape: {QMC_estimate.shape}")
         QMC_estimate = QMC_estimate.reshape(grid_x.detach().numpy().shape)
+        scaled_x = u[:,0].reshape(grid_x.detach().numpy().shape)
+        scaled_y = u[:,1].reshape(grid_y.detach().numpy().shape)
         print(f"QMC estimate shape: {QMC_estimate.shape}")
-        plt.pcolormesh(grid_x,grid_y,QMC_estimate, cmap='autumn')
-        plt.title("Pricing Estimate on [0,1]x[0,1] grid")
-        plt.colorbar(label='Estimated Price')
-        plt.savefig(f".//Visualization//Pricing_Estimate.png")
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        surf = ax.plot_surface(scaled_x, scaled_y, QMC_estimate, cmap="autumn",
+                       linewidth=0, antialiased=False)
+        plt.title("Probability weighted price estimate on base space")
+        fig.colorbar(surf, shrink=0.5, aspect=5, label = r"$\phi$")
+        plt.savefig(f".//Visualization//Price_Estimate.png")
         plt.close()
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        surf = ax.plot_surface(grid_x, grid_y, QMC_estimate, cmap="autumn",
+                       linewidth=0, antialiased=False)
+        plt.title("Probability weighted price estimate on [0,1]x[0,1]")
+        fig.colorbar(surf, shrink=0.5, aspect=5, label = r"$\phi$")
+        plt.savefig(f".//Visualization//Price_Estimate_QMC_space.png")
+        plt.close()
+        return grid_x,grid_y,scaled_x,scaled_y,QMC_estimate
     
         # Calculate the final estimate and statistical error
         #RQMC_stat_error = 1.96 * np.std(RQMC_replicates) / np.sqrt(S_shifts)
@@ -202,8 +276,9 @@ def train_flow(
     num_samples = num_samples_init
     loss_hist = np.array([])
     if forward_kl:
-        max_iter*=2
-        num_samples_init*=8
+        pass
+        #max_iter*=2
+        #num_samples_init*=8
     if optimizer_method.lower() == "adam":
         optimizer = torch.optim.Adam(flow.parameters(), lr=lr,weight_decay=weight_decay)
     if optimizer_method.lower() == "sgd":
@@ -247,7 +322,7 @@ def train_flow(
 
 def NF_QMC_fourier_pricing_engine(
         model_name, payoff_name, option_params, N_samples, S_shifts, 
-        transform_distribution=None, transform_params=None, weights=None, TOLR = None, nfm_model = None, plot_prob_space = True):
+        transform_distribution=None, transform_params=None, weights=None, TOLR = None, nfm_model = None, plot_prob_space = False):
     
     # Initialize model
     if model_name == 'NIG':
@@ -321,7 +396,8 @@ def NF_QMC_fourier_pricing_engine(
     if S_shifts < 30:
         print("Warning: The statistical error estimation of RQMC is not reliable because S_shifts < 30.")
     if plot_prob_space:
-        engine.plot_integrand(d=d,S0=S0,K=K,r=r,T=T,N_grid=2**6)
+        raw_points, points, probs, Prices = engine.compute_price(d=d,S0=S0,K=K,r=r,T=T,N_samples=N_samples,S_shifts=S_shifts,grid_size = 2**6)
+        return raw_points,points, probs, Prices, trained_nfm
     # Compute price
     if (TOLR is not None): # if the user specifies targer relative error
         rel_stat_error = 2 * TOLR # Initialize relative statistical error
@@ -332,10 +408,11 @@ def NF_QMC_fourier_pricing_engine(
             rel_stat_error = stat_error / price
         return (price, stat_error), achieved_loss.detach().numpy(), trained_nfm
     else:
+        engine.plot_integrand(d=d,S0=S0,K=K,r=r,T=T,N_grid=2**6)
         return engine.compute_price(d=d,S0=S0,K=K,r=r,T=T,N_samples=N_samples,S_shifts=S_shifts), achieved_loss.detach().numpy(), trained_nfm
 
 
-def QMC_fourier_pricing_engine(model_name, payoff_name, option_params, N_samples, S_shifts, transform_distribution=None, transform_params=None, weights=None, TOLR = None):
+def QMC_fourier_pricing_engine(model_name, payoff_name, option_params, N_samples, S_shifts, transform_distribution=None, transform_params=None, weights=None, TOLR = None,plot_prob_space = False):
     
     # Initialize model
     if model_name == 'NIG':
@@ -403,6 +480,9 @@ def QMC_fourier_pricing_engine(model_name, payoff_name, option_params, N_samples
     
     if S_shifts < 30:
         print("Warning: The statistical error estimation of RQMC is not reliable because S_shifts < 30.")
+    if plot_prob_space:
+        points, probs, Prices = engine.compute_price(d=d,S0=S0,K=K,r=r,T=T,N_samples=N_samples,S_shifts=S_shifts,grid_size = 2**6)
+        return points, probs, Prices
     # Compute price
     if (TOLR is not None): # if the user specifies targer relative error
         rel_stat_error = 2 * TOLR # Initialize relative statistical error
